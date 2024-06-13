@@ -956,30 +956,30 @@ public class BleClientManager : NSObject {
     private func safeMonitorCharacteristicForDevice(_ characteristicObservable: Observable<Characteristic>,
                                                     transactionId: String,
                                                     promise: SafePromise) {
-        print("safeMonitorCharacteristicForDevice called with transactionId: \(transactionId)")
+        NSLog("safeMonitorCharacteristicForDevice called with transactionId: %@", transactionId)
 
         let observable: Observable<Characteristic> = characteristicObservable
             .flatMap { [weak self] (characteristic: Characteristic) -> Observable<Characteristic> in
                 let characteristicIdentifier = characteristic.jsIdentifier
-                print("FlatMap: Processing characteristic with identifier: \(characteristicIdentifier)")
+                NSLog("FlatMap: Processing characteristic with identifier: %@", characteristicIdentifier)
 
                 if let monitoringObservable = self?.monitoredCharacteristics[characteristicIdentifier] {
-                    print("Characteristic already being monitored. Reusing existing observable.")
+                    NSLog("Characteristic already being monitored. Reusing existing observable.")
                     return monitoringObservable
                 } else {
-                    print("Characteristic not monitored. Setting up new monitoring observable.")
+                    NSLog("Characteristic not monitored. Setting up new monitoring observable.")
                     let newObservable: Observable<Characteristic> = characteristic
                         .setNotificationAndMonitorUpdates()
                         .do(onNext: { characteristic in
-                            print("Received update for characteristic: \(characteristic.jsIdentifier)")
+                            NSLog("Received update for characteristic: %@", characteristic.jsIdentifier)
                         }, onError: { error in
-                            print("Error occurred while monitoring characteristic: \(error)")
+                            NSLog("Error occurred while monitoring characteristic: %@", error.localizedDescription)
                         }, onCompleted: {
-                            print("Monitoring completed for characteristic.")
+                            NSLog("Monitoring completed for characteristic.")
                         }, onSubscribe: {
-                            print("Subscribed to characteristic updates.")
+                            NSLog("Subscribed to characteristic updates.")
                         }, onDispose: {
-                            print("Disposing characteristic updates.")
+                            NSLog("Disposing characteristic updates.")
                             _ = characteristic.setNotifyValue(false).subscribe()
                             self?.monitoredCharacteristics[characteristicIdentifier] = nil
                         })
@@ -991,25 +991,26 @@ public class BleClientManager : NSObject {
 
         let disposable = observable.subscribe(
             onNext: { [weak self] characteristic in
-                print("onNext: Characteristic update received for \(characteristic.jsIdentifier)")
+                NSLog("onNext: Characteristic update received for %@", characteristic.jsIdentifier)
                 if self?.pendingReads[characteristic.jsIdentifier] ?? 0 == 0 {
-                    print("Dispatching read event for characteristic: \(characteristic.jsIdentifier)")
+                    NSLog("Dispatching read event for characteristic: %@", characteristic.jsIdentifier)
                     self?.dispatchEvent(BleEvent.readEvent, value: [NSNull(), characteristic.asJSObject, transactionId])
                 }
             }, onError: { [weak self] error in
-                print("onError: Error monitoring characteristic: \(error)")
+                NSLog("onError: Error monitoring characteristic: %@", error.localizedDescription)
                 self?.dispatchEvent(BleEvent.readEvent, value: [error.bleError.toJS, NSNull(), transactionId])
             }, onCompleted: {
-                print("onCompleted: Monitoring completed.")
+                NSLog("onCompleted: Monitoring completed.")
             }, onDisposed: { [weak self] in
-                print("onDisposed: Disposing monitoring for transactionId: \(transactionId)")
+                NSLog("onDisposed: Disposing monitoring for transactionId: %@", transactionId)
                 self?.transactions.removeDisposable(transactionId)
                 BleError.cancelled().callReject(promise)
             })
 
         transactions.replaceDisposable(transactionId, disposable: disposable)
-        print("Monitoring setup completed for transactionId: \(transactionId)")
+        NSLog("Monitoring setup completed for transactionId: %@", transactionId)
     }
+
 
 
     // MARK: Getting characteristics -----------------------------------------------------------------------------------
