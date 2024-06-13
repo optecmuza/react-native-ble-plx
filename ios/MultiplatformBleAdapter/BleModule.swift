@@ -915,7 +915,7 @@ public class BleClientManager : NSObject {
                                            promise: SafePromise(resolve: resolve, reject: reject))
     }
 
-    private func safeMonitorCharacteristicForDevice(_ characteristicObservable: Observable<Characteristic>,
+    /*private func safeMonitorCharacteristicForDevice(_ characteristicObservable: Observable<Characteristic>,
                                                                  transactionId: String,
                                                                        promise: SafePromise) {
 
@@ -952,11 +952,69 @@ public class BleClientManager : NSObject {
             })
 
         transactions.replaceDisposable(transactionId, disposable: disposable)
+    }*/
+    private func safeMonitorCharacteristicForDevice(_ characteristicObservable: Observable<Characteristic>,
+                                                    transactionId: String,
+                                                    promise: SafePromise) {
+        print("safeMonitorCharacteristicForDevice called with transactionId: \(transactionId)")
+
+        let observable: Observable<Characteristic> = characteristicObservable
+            .flatMap { [weak self] (characteristic: Characteristic) -> Observable<Characteristic> in
+                let characteristicIdentifier = characteristic.jsIdentifier
+                print("FlatMap: Processing characteristic with identifier: \(characteristicIdentifier)")
+
+                if let monitoringObservable = self?.monitoredCharacteristics[characteristicIdentifier] {
+                    print("Characteristic already being monitored. Reusing existing observable.")
+                    return monitoringObservable
+                } else {
+                    print("Characteristic not monitored. Setting up new monitoring observable.")
+                    let newObservable: Observable<Characteristic> = characteristic
+                        .setNotificationAndMonitorUpdates()
+                        .do(onNext: { characteristic in
+                            print("Received update for characteristic: \(characteristic.jsIdentifier)")
+                        }, onError: { error in
+                            print("Error occurred while monitoring characteristic: \(error)")
+                        }, onCompleted: {
+                            print("Monitoring completed for characteristic.")
+                        }, onSubscribe: {
+                            print("Subscribed to characteristic updates.")
+                        }, onDispose: {
+                            print("Disposing characteristic updates.")
+                            _ = characteristic.setNotifyValue(false).subscribe()
+                            self?.monitoredCharacteristics[characteristicIdentifier] = nil
+                        })
+                        .share()
+                    self?.monitoredCharacteristics[characteristicIdentifier] = newObservable
+                    return newObservable
+                }
+            }
+
+        let disposable = observable.subscribe(
+            onNext: { [weak self] characteristic in
+                print("onNext: Characteristic update received for \(characteristic.jsIdentifier)")
+                if self?.pendingReads[characteristic.jsIdentifier] ?? 0 == 0 {
+                    print("Dispatching read event for characteristic: \(characteristic.jsIdentifier)")
+                    self?.dispatchEvent(BleEvent.readEvent, value: [NSNull(), characteristic.asJSObject, transactionId])
+                }
+            }, onError: { [weak self] error in
+                print("onError: Error monitoring characteristic: \(error)")
+                self?.dispatchEvent(BleEvent.readEvent, value: [error.bleError.toJS, NSNull(), transactionId])
+            }, onCompleted: {
+                print("onCompleted: Monitoring completed.")
+            }, onDisposed: { [weak self] in
+                print("onDisposed: Disposing monitoring for transactionId: \(transactionId)")
+                self?.transactions.removeDisposable(transactionId)
+                BleError.cancelled().callReject(promise)
+            })
+
+        transactions.replaceDisposable(transactionId, disposable: disposable)
+        print("Monitoring setup completed for transactionId: \(transactionId)")
     }
+
 
     // MARK: Getting characteristics -----------------------------------------------------------------------------------
 
-    private func getCharacteristicForDevice(_ deviceId: String,
+    /*private func getCharacteristicForDevice(_ deviceId: String,
                                            serviceUUID: String,
                                     characteristicUUID: String) -> Observable<Characteristic> {
         return Observable.create { [weak self] observer in
@@ -992,7 +1050,57 @@ public class BleClientManager : NSObject {
             observer.onCompleted()
             return Disposables.create()
         }
+    }*/
+    private func getCharacteristicForDevice(_ deviceId: String,
+                                            serviceUUID: String,
+                                            characteristicUUID: String) -> Observable<Characteristic> {
+        return Observable.create { [weak self] observer in
+            print("getCharacteristicForDevice called with deviceId: \(deviceId), serviceUUID: \(serviceUUID), characteristicUUID: \(characteristicUUID)")
+            
+            guard let peripheralId = UUID(uuidString: deviceId) else {
+                print("Error: Invalid peripheral UUID - \(deviceId)")
+                observer.onError(BleError.peripheralNotFound(deviceId))
+                return Disposables.create()
+            }
+            print("Peripheral UUID: \(peripheralId)")
+            
+            guard let serviceCBUUID = serviceUUID.toCBUUID() else {
+                print("Error: Invalid service UUID - \(serviceUUID)")
+                observer.onError(BleError.invalidIdentifiers(serviceUUID))
+                return Disposables.create()
+            }
+            print("Service CBUUID: \(serviceCBUUID)")
+            
+            guard let characteristicCBUUID = characteristicUUID.toCBUUID() else {
+                print("Error: Invalid characteristic UUID - \(characteristicUUID)")
+                observer.onError(BleError.invalidIdentifiers(characteristicUUID))
+                return Disposables.create()
+            }
+            print("Characteristic CBUUID: \(characteristicCBUUID)")
+            
+            guard let peripheral = self?.connectedPeripherals[peripheralId] else {
+                print("Error: Peripheral not connected - \(deviceId)")
+                observer.onError(BleError.peripheralNotConnected(deviceId))
+                return Disposables.create()
+            }
+            print("Connected Peripheral: \(peripheral)")
+            
+            guard let characteristic = (peripheral.services?
+                .first { $0.uuid == serviceCBUUID }?
+                .characteristics?
+                .first { $0.uuid == characteristicCBUUID }) else {
+                print("Error: Characteristic not found - \(characteristicUUID)")
+                observer.onError(BleError.characteristicNotFound(characteristicUUID))
+                return Disposables.create()
+            }
+            print("Found Characteristic: \(characteristic)")
+            
+            observer.onNext(characteristic)
+            observer.onCompleted()
+            return Disposables.create()
+        }
     }
+
 
     private func getCharacteristicForService(_ serviceId: Double,
                                       characteristicUUID: String) -> Observable<Characteristic> {

@@ -326,7 +326,7 @@ public class Peripheral {
     /// - parameter characteristic: Characterististic on which notification should be made.
     /// - returns: Observable which emits `Next`, when characteristic value is updated.
     /// This is **infinite** stream of values.
-    public func setNotificationAndMonitorUpdates(for characteristic: Characteristic)
+    /*public func setNotificationAndMonitorUpdates(for characteristic: Characteristic)
         -> Observable<Characteristic> {
         return Observable
             .of(
@@ -338,7 +338,50 @@ public class Peripheral {
                     .subscribeOn(CurrentThreadScheduler.instance)
             )
             .merge()
+    }*/
+    public func setNotificationAndMonitorUpdates(for characteristic: Characteristic) -> Observable<Characteristic> {
+        print("setNotificationAndMonitorUpdates called for characteristic: \(characteristic.uuid)")
+
+        let monitorObservable = monitorValueUpdate(for: characteristic)
+            .do(onNext: { characteristic in
+                print("monitorValueUpdate: Received update for characteristic: \(characteristic.uuid)")
+            }, onError: { error in
+                print("monitorValueUpdate: Error occurred: \(error)")
+            }, onCompleted: {
+                print("monitorValueUpdate: Monitoring completed.")
+            }, onSubscribe: {
+                print("monitorValueUpdate: Subscribed to characteristic updates.")
+            }, onDispose: {
+                print("monitorValueUpdate: Disposing characteristic updates.")
+            })
+
+        let setNotifyObservable = setNotifyValue(true, for: characteristic)
+            .ignoreElements()
+            .asObservable()
+            .do(onNext: { _ in
+                print("setNotifyValue: Notification set for characteristic: \(characteristic.uuid)")
+            }, onError: { error in
+                print("setNotifyValue: Error occurred: \(error)")
+            }, onCompleted: {
+                print("setNotifyValue: Setting notification completed for characteristic: \(characteristic.uuid)")
+            }, onSubscribe: {
+                print("setNotifyValue: Subscribed to set notification for characteristic: \(characteristic.uuid)")
+            }, onDispose: {
+                print("setNotifyValue: Disposing set notification for characteristic: \(characteristic.uuid)")
+            })
+            .map { _ in characteristic }
+            .subscribeOn(CurrentThreadScheduler.instance)
+
+        return Observable
+            .of(monitorObservable, setNotifyObservable)
+            .merge()
+            .do(onSubscribe: {
+                print("setNotificationAndMonitorUpdates: Subscribing to merged observables for characteristic: \(characteristic.uuid)")
+            }, onDispose: {
+                print("setNotificationAndMonitorUpdates: Disposing merged observables for characteristic: \(characteristic.uuid)")
+            })
     }
+
 
     // MARK: Descriptors
     /// Function that triggers descriptors discovery for characteristic
